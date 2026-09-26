@@ -1,8 +1,9 @@
-﻿export const dynamic = "force-dynamic";
+export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { comparePassword, signToken } from "@/lib/auth";
+import { MOCK_USERS } from "@/lib/mockData";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,37 +13,61 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-      include: {
-        student: {
-          include: { department: true },
-        },
-        faculty: {
-          include: { department: true },
-        },
-      },
-    });
+    const cleanEmail = email.toLowerCase().trim();
+    let sessionUser: any = null;
 
-    if (!user) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    // 1. Try Prisma DB first if database is active
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email: cleanEmail },
+        include: {
+          student: { include: { department: true } },
+          faculty: { include: { department: true } },
+        },
+      });
+
+      if (user) {
+        const isMatch = await comparePassword(password, user.passwordHash);
+        if (isMatch) {
+          sessionUser = {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role as any,
+            studentId: user.student?.id,
+            facultyId: user.faculty?.id,
+            rollNumber: user.student?.rollNumber,
+            departmentName: user.student?.department?.name || user.faculty?.department?.name,
+          };
+        }
+      }
+    } catch (dbError) {
+      console.warn("Database connection issue. Falling back to mock authentication:", dbError);
     }
 
-    const isMatch = await comparePassword(password, user.passwordHash);
-    if (!isMatch) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    // 2. Fallback to in-memory mock demo users if DB is not connected or user is not found in DB
+    if (!sessionUser) {
+      const mockUser = MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
+      if (
+        mockUser &&
+        (password === mockUser.password || (await comparePassword(password, mockUser.passwordHash)))
+      ) {
+        sessionUser = {
+          id: mockUser.id,
+          email: mockUser.email,
+          name: mockUser.name,
+          role: mockUser.role,
+          studentId: mockUser.studentId,
+          facultyId: mockUser.facultyId,
+          rollNumber: mockUser.rollNumber,
+          departmentName: mockUser.departmentName,
+        };
+      }
     }
 
-    const sessionUser = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role as any,
-      studentId: user.student?.id,
-      facultyId: user.faculty?.id,
-      rollNumber: user.student?.rollNumber,
-      departmentName: user.student?.department?.name || user.faculty?.department?.name,
-    };
+    if (!sessionUser) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
 
     const token = signToken(sessionUser);
 
@@ -68,4 +93,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "An unexpected error occurred during login" }, { status: 500 });
   }
 }
-
