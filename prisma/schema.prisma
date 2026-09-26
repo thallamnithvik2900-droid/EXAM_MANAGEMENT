@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         String    // ADMIN, FACULTY, INVIGILATOR, STUDENT
+  phone        String?
+  avatar       String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  student      Student?
+  faculty      Faculty?
+  notifications Notification[]
+  auditLogs    AuditLog[]
+}
+
+model Department {
+  id        String    @id @default(uuid())
+  name      String
+  code      String    @unique
+  createdAt DateTime  @default(now())
+
+  subjects  Subject[]
+  students  Student[]
+  faculty   Faculty[]
+}
+
+model Subject {
+  id           String      @id @default(uuid())
+  name         String
+  code         String      @unique
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  credits      Int         @default(3)
+  semester     Int         @default(1)
+  createdAt    DateTime    @default(now())
+
+  exams        Exam[]
+  questions    Question[]
+}
+
+model Student {
+  id             String           @id @default(uuid())
+  userId         String           @unique
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rollNumber     String           @unique
+  registrationNo String           @unique
+  semester       Int              @default(1)
+  departmentId   String?
+  department     Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdAt      DateTime         @default(now())
+
+  examAttempts   ExamAttempt[]
+  seatAllocations SeatAllocation[]
+  attendances    Attendance[]
+  results        Result[]
+}
+
+model Faculty {
+  id           String      @id @default(uuid())
+  userId       String      @unique
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeId   String      @unique
+  designation  String      @default("Assistant Professor")
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+
+  invigilations InvigilatorAssignment[]
+}
+
+model Hall {
+  id        String   @id @default(uuid())
+  hallCode  String   @unique
+  name      String
+  building  String
+  floor     String
+  capacity  Int
+  rows      Int
+  cols      Int
+  createdAt DateTime @default(now())
+
+  schedules       ExamSchedule[]
+  seatAllocations SeatAllocation[]
+  invigilations   InvigilatorAssignment[]
+}
+
+model Exam {
+  id                 String         @id @default(uuid())
+  title              String
+  description        String?
+  code               String         @unique
+  subjectId          String
+  subject            Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  examType           String         @default("ONLINE_OBJECTIVE") // ONLINE_OBJECTIVE, MID_TERM, FINAL_SEMESTER, PRACTICE_TEST
+  durationMinutes    Int            @default(60)
+  totalMarks         Float          @default(100)
+  passMarks          Float          @default(40)
+  negativeMarking    Float          @default(0.0) // deduction per wrong answer e.g. 0.25
+  isRandomized       Boolean        @default(true)
+  canReviewSolutions Boolean        @default(true)
+  isPublished        Boolean        @default(true)
+  startDate          DateTime       @default(now())
+  endDate            DateTime?
+  createdAt          DateTime       @default(now())
+
+  examQuestions      ExamQuestion[]
+  schedules          ExamSchedule[]
+  attempts           ExamAttempt[]
+  results            Result[]
+}
+
+model Question {
+  id            String         @id @default(uuid())
+  subjectId     String
+  subject       Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topic         String         @default("General")
+  chapter       String?
+  difficulty    String         @default("MEDIUM") // EASY, MEDIUM, HARD
+  questionType  String         @default("MCQ_SINGLE") // MCQ_SINGLE, MCQ_MULTIPLE, TRUE_FALSE, NUMERICAL, CODING, DESCRIPTIVE
+  questionText  String
+  optionsJson   String?        // JSON string array of choices e.g. ["extends", "implements", "inherits", "super"]
+  correctAnswer String         // text or JSON string for multiple choices e.g. "extends" or "[\"A\", \"C\"]"
+  explanation   String?
+  marks         Float          @default(1.0)
+  negativeMarks Float          @default(0.0)
+  createdAt     DateTime       @default(now())
+
+  examQuestions ExamQuestion[]
+  attemptAnswers AttemptAnswer[]
+}
+
+model ExamQuestion {
+  id         String   @id @default(uuid())
+  examId     String
+  exam       Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@unique([examId, questionId])
+}
+
+model ExamSchedule {
+  id        String   @id @default(uuid())
+  examId    String
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  hallId    String?
+  hall      Hall?    @relation(fields: [hallId], references: [id], onDelete: SetNull)
+  date      DateTime
+  startTime String   // e.g. "09:00 AM"
+  endTime   String   // e.g. "12:00 PM"
+  createdAt DateTime @default(now())
+
+  seatAllocations SeatAllocation[]
+  invigilations   InvigilatorAssignment[]
+  attendances     Attendance[]
+}
+
+model ExamAttempt {
+  id                    String          @id @default(uuid())
+  studentId             String
+  student               Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  examId                String
+  exam                  Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  startTime             DateTime        @default(now())
+  expectedEndTime       DateTime
+  status                String          @default("IN_PROGRESS") // IN_PROGRESS, SUBMITTED, TIMED_OUT, CANCELLED
+  currentQuestionIndex  Int             @default(0)
+  submittedAt           DateTime?
+  totalTimeSpentSeconds Int             @default(0)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  answers               AttemptAnswer[]
+  result                Result?
+}
+
+model AttemptAnswer {
+  id                 String       @id @default(uuid())
+  attemptId          String
+  attempt            ExamAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId         String
+  question           Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  studentAnswer      String?      // string or JSON string of answers
+  isMarkedForReview  Boolean      @default(false)
+  isAnswered         Boolean      @default(false)
+  isCorrect          Boolean?     // evaluated upon submission
+  marksAwarded       Float?       // evaluated upon submission
+  savedAt            DateTime     @default(now())
+
+  @@unique([attemptId, questionId])
+}
+
+model SeatAllocation {
+  id             String       @id @default(uuid())
+  examScheduleId String
+  examSchedule   ExamSchedule @relation(fields: [examScheduleId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  hallId         String
+  hall           Hall         @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  rowNumber      Int
+  colNumber      Int
+  seatNumber     String       // e.g. "H1-R1-S01"
+  createdAt      DateTime     @default(now())
+
+  @@unique([examScheduleId, studentId])
+  @@unique([examScheduleId, hallId, seatNumber])
+}
+
+model InvigilatorAssignment {
+  id             String       @id @default(uuid())
+  examScheduleId String
+  examSchedule   ExamSchedule @relation(fields: [examScheduleId], references: [id], onDelete: Cascade)
+  facultyId      String
+  faculty        Faculty      @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  hallId         String
+  hall           Hall         @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  status         String       @default("ASSIGNED") // ASSIGNED, REPORTED, COMPLETED, CONFIRMED
+  isConfirmed    Boolean      @default(false)
+  confirmedAt    DateTime?
+  createdAt      DateTime     @default(now())
+}
+
+model Attendance {
+  id             String       @id @default(uuid())
+  examScheduleId String
+  examSchedule   ExamSchedule @relation(fields: [examScheduleId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status         String       @default("PRESENT") // PRESENT, ABSENT, LATE, MALPRACTICE
+  notes          String?
+  markedById     String?
+  isConfirmed    Boolean      @default(false)
+  confirmedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([examScheduleId, studentId])
+}
+
+model Result {
+  id               String       @id @default(uuid())
+  studentId        String
+  student          Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  examId           String
+  exam             Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  attemptId        String       @unique
+  attempt          ExamAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  score            Float
+  maxScore         Float
+  percentage       Float
+  isPassed         Boolean      @default(false)
+  correctCount     Int          @default(0)
+  wrongCount       Int          @default(0)
+  unansweredCount  Int          @default(0)
+  accuracy         Float        @default(0)
+  topicWiseJson    String?      // JSON breakdown: { "OOP": { total: 4, correct: 3, percentage: 75 } }
+  generatedAt      DateTime     @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("GENERAL") // EXAM_ALERT, RESULT, SCHEDULE, GENERAL
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
